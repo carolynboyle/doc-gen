@@ -1,6 +1,6 @@
 # doc-gen
 
-A Python documentation generator that creates syntax-highlighted markdown files from your project source code. Built with a menu-driven interface and designed to respect your existing project structure.
+A Python documentation generator that creates syntax-highlighted markdown files from your project source code. Built with an "idiot-proof" menu-driven interface and designed to respect your existing project structure.
 
 ## What It Does
 

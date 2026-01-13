@@ -2,21 +2,30 @@
 Menu action handlers for doc-gen.
 Contains all the actual functionality behind menu options.
 """
-
 from pathlib import Path
 import os
 import pydoc
+import subprocess
+import yaml
+from doc_gen.core.config import ensure_doc_gen_structure, OUTPUT_DIR
 from doc_gen.core.config import (
     initialize_config as init_config, 
     load_config,
     DEFAULT_MANIFEST_PATH,
-    OUTPUT_DIR
+    OUTPUT_DIR,
+    get_ignore_patterns,
+    reset_ignore_patterns as reset_patterns,
+    add_ignore_pattern as add_pattern,
+    remove_ignore_pattern as remove_pattern,
+    IGNORE_PATTERNS_FILE,
+    HARDCODED_IGNORES
 )
 from doc_gen.core.builder import run_interactive_mode, run_generate_mode, run_check_mode
-from doc_gen.core.scanner import ProjectScanner
-from doc_gen.utils.prompts import prompt_file_selection
-from doc_gen.utils.tree import generate_project_tree, save_project_tree
-import yaml
+# from doc_gen.core.manifest import read_manifest
+# from doc_gen.core.scanner import ProjectScanner
+# from doc_gen.utils.prompts import prompt_file_selection
+# from doc_gen.utils.tree import generate_project_tree, save_project_tree
+
 
 
 class MenuActions:
@@ -30,38 +39,48 @@ class MenuActions:
             menu_system: Reference to parent MenuSystem for accessing config
         """
         self.menu = menu_system
+        
+        # Ignore patterns submenu dispatch
+        self.ignore_patterns_actions = {
+            '1': self.view_ignore_patterns,
+            '2': self.reset_ignore_patterns,
+            '3': self.add_ignore_pattern,
+            '4': self.remove_ignore_pattern,
+            '5': self.edit_ignore_patterns_file,
+            '6': self.back_from_ignore_patterns
+        }
     
     # Main Menu Actions
     
-    def interactive_mode(self):
+    def scan_project(self):
         """Scan project and select files to document (build manifest)."""
         self.menu.clear_screen()
         self.menu.display_header("Scan Project - Select Files to Document")
         
-        print("\n" + "=" * 50)
-        print("NOTE: Files matching .gitignore patterns will be skipped")
-        print("This includes .venv/, .git/, __pycache__/, etc.")
-        print(".doc-gen/ is ALWAYS excluded (tool never documents itself)")
-        print("To include gitignored files in project tree, use")
-        print("'Generate Project Tree' option after selecting files.")
-        print("=" * 50)
+        print("\nFiles matching ignore patterns will be skipped")
+        print("(.venv/, .git/, __pycache__/, etc.)")
+        print(".doc-gen/ is always excluded (tool never documents itself)")
+        print("=" * 60)
         
         # Get project path from user (or use current directory)
         project_path = input("\nProject directory to scan (Enter for current directory): ").strip()
         if not project_path:
             project_path = None  # Will default to current directory
         
-        # Run interactive mode
+        # Run scan and selection (respects ignore patterns automatically)
         result = run_interactive_mode(
             project_root=project_path,
             config_path=self.menu.current_config
         )
         
+        # Clear screen before showing result (prevents scroll spam from rapid Enter)
+        self.menu.clear_screen()
+        
         # Display result
         print(f"\n{result['message']}")
         
         if not result['success']:
-            print("(Interactive mode did not complete successfully)")
+            print("(Scan did not complete successfully)")
         
         input("\nPress Enter to continue...")
     
@@ -94,12 +113,12 @@ class MenuActions:
         input("\nPress Enter to continue...")
     
     def check_mode(self):
-        """Dry-run mode to show what will be created."""
+        """Dry-run mode to check what would be generated."""
         self.menu.clear_screen()
-        self.menu.display_header("Check Mode - Show What Will Be Created")
+        self.menu.display_header("Check Mode - Dry Run")
         
         # Get manifest path from user (or use default)
-        manifest_path = input(f"\nName for selected files list (Enter for default): ").strip()
+        manifest_path = input(f"\nManifest file (Enter for '{DEFAULT_MANIFEST_PATH}'): ").strip()
         if not manifest_path:
             manifest_path = str(DEFAULT_MANIFEST_PATH)
         
@@ -118,69 +137,20 @@ class MenuActions:
             # Offer to save to file
             save = input("\nSave report to file? (y/N): ").strip().lower()
             if save == 'y':
-                while True:
-                    filename = input("Filename (Enter for '.doc-gen/check-report.txt'): ").strip()
-                    if not filename:
-                        filename = ".doc-gen/check-report.txt"
-                    
-                    # Expand user path (~ to /home/user)
-                    filepath = Path(filename).expanduser().resolve()
-                    
-                    # Check if it's a directory
-                    if filepath.exists() and filepath.is_dir():
-                        print(f"\n✗ '{filename}' is a directory, not a file")
-                        print(f"Please specify a filename, e.g., '{filepath}/check-report.txt'")
-                        retry = input("Try again? (Y/n): ").strip().lower()
-                        if retry == 'n':
-                            break
-                        continue
-                    
-                    # Try to create parent directory
-                    try:
-                        filepath.parent.mkdir(parents=True, exist_ok=True)
-                    except PermissionError:
-                        print(f"\n✗ Permission denied: Cannot create directory {filepath.parent}")
-                        retry = input("Try a different path? (y/N): ").strip().lower()
-                        if retry != 'y':
-                            break
-                        continue
-                    except Exception as e:
-                        print(f"\n✗ Error creating directory: {e}")
-                        retry = input("Try a different path? (y/N): ").strip().lower()
-                        if retry != 'y':
-                            break
-                        continue
-                    
-                    # Try to write the file
-                    try:
-                        filepath.write_text(result['report'], encoding='utf-8')
-                        if filepath.exists():
-                            print(f"\n✓ Report saved to {filepath}")
-                            break
-                        else:
-                            print(f"\n✗ Failed to create file")
-                            retry = input("Try a different path? (y/N): ").strip().lower()
-                            if retry != 'y':
-                                break
-                    except PermissionError:
-                        print(f"\n✗ Permission denied: Cannot write to {filepath}")
-                        retry = input("Try a different path? (y/N): ").strip().lower()
-                        if retry != 'y':
-                            break
-                    except Exception as e:
-                        print(f"\n✗ Error saving file: {e}")
-                        retry = input("Try a different path? (y/N): ").strip().lower()
-                        if retry != 'y':
-                            break
+                filename = input("Filename (Enter for '.doc-gen/check-report.txt'): ").strip()
+                if not filename:
+                    filename = ".doc-gen/check-report.txt"
+                
+                try:
+                    Path(filename).write_text(result['report'], encoding='utf-8')
+                    print(f"Report saved to {Path(filename).absolute()}")
+                except Exception as e:
+                    print(f"Error saving file: {e}")
             
             input("\nPress Enter to continue...")
         else:
             # Error - just print message
             print(f"\n{result['message']}")
-            print("\nNo files selected yet:")
-            print("  1. Use option 2: 'Scan Project' to select files")
-            print("  2. Choose which files to document")
-            print("  3. Then return here to run check mode")
             input("\nPress Enter to continue...")
     
     def initialize_config(self):
@@ -199,180 +169,75 @@ class MenuActions:
         
         input("\nPress Enter to continue...")
     
-    def generate_tree(self):
-        """Generate project tree structure file (standalone utility)."""
+   
+
+    def get_project_tree(self):
+        """Generate and display project filesystem tree."""
         self.menu.clear_screen()
-        self.menu.display_header("Generate Project Tree")
-        
-        project_root = Path.cwd()
-        gitignore_path = project_root / '.gitignore'
-        
-        print("\nThis will generate a project structure visualization.")
-        print("By default, .gitignore patterns are respected.")
-        print("You can choose to include specific patterns.\n")
-        
-        # Start with files respecting .gitignore
-        scanner = ProjectScanner(
-            root_dir=project_root,
-            gitignore_path=gitignore_path if gitignore_path.exists() else None,
-            exclusions=[]
-        )
-        files_to_include = scanner.scan_files()
-        
-        # Always exclude .doc-gen (hardcoded)
-        files_to_include = [f for f in files_to_include if '.doc-gen' not in f.parts]
-        
-        print(f"Found {len(files_to_include)} files (respecting .gitignore)\n")
-        
-        # Ask about including gitignored patterns
-        if gitignore_path.exists():
-            include_ignored = input("Include some gitignored patterns? (y/N): ").strip().lower()
-            
-            if include_ignored == 'y':
-                print("\n" + "=" * 50)
-                print("Select .gitignore patterns to INCLUDE in tree:")
-                print("=" * 50 + "\n")
-                
-                # Read and parse .gitignore
-                gitignore_lines = gitignore_path.read_text().splitlines()
-                patterns_to_include = []
-                
-                for line in gitignore_lines:
-                    line = line.strip()
-                    
-                    # Skip empty lines and comments
-                    if not line or line.startswith('#'):
-                        continue
-                    
-                    # Prompt for this pattern
-                    response = input(f"Include files matching '{line}'? (y/N): ").strip().lower()
-                    if response == 'y':
-                        patterns_to_include.append(line)
-                
-                # Scan for files matching the included patterns
-                if patterns_to_include:
-                    print(f"\nScanning for files matching {len(patterns_to_include)} selected patterns...")
-                    
-                    # Scan without gitignore
-                    full_scanner = ProjectScanner(
-                        root_dir=project_root,
-                        gitignore_path=None,
-                        exclusions=[]
-                    )
-                    all_files = full_scanner.scan_files()
-                    
-                    # Find files matching selected patterns
-                    from fnmatch import fnmatch
-                    already_included = set(str(f) for f in files_to_include)
-                    
-                    for filepath in all_files:
-                        # Skip if already included or in .doc-gen
-                        if str(filepath) in already_included or '.doc-gen' in filepath.parts:
-                            continue
-                        
-                        # Check if matches any selected pattern
-                        for pattern in patterns_to_include:
-                            # Handle directory patterns (end with /)
-                            if pattern.endswith('/'):
-                                dir_pattern = pattern.rstrip('/')
-                                if dir_pattern in filepath.parts:
-                                    files_to_include.append(filepath)
-                                    break
-                            else:
-                                # File pattern
-                                if fnmatch(filepath.name, pattern):
-                                    files_to_include.append(filepath)
-                                    break
-                    
-                    print(f"Tree will include {len(files_to_include)} total files")
-        
-        # Generate and display tree
-        tree_text = generate_project_tree(files_to_include, project_root)
-        self.menu.display_header("Project Tree Preview")
-        print(tree_text)
-        print("=" * 50)
-        
-        # Offer to save
-        save = input("\nSave to file? (Y/n): ").strip().lower()
-        if save != 'n':
-            while True:
-                filename = input("Filename (Enter for '.doc-gen/PROJECT_STRUCTURE.txt'): ").strip()
-                if not filename:
-                    filename = ".doc-gen/PROJECT_STRUCTURE.txt"
-                
-                # Check for directory-only inputs before expanding
-                if filename in ['~', '~/', '.', './'] or filename.endswith('/'):
-                    print(f"\n✗ '{filename}' is a directory path, not a filename")
-                    print("Please specify a filename, e.g., '~/ PROJECT_STRUCTURE.txt' or '.doc-gen/PROJECT_STRUCTURE.txt'")
-                    retry = input("Try again? (Y/n): ").strip().lower()
-                    if retry == 'n':
-                        break
-                    continue
-                
-                # Expand user path (~ to /home/user)
-                filepath = Path(filename).expanduser().resolve()
-                
-                # Check if it's an existing directory
-                if filepath.exists() and filepath.is_dir():
-                    print(f"\n✗ '{filename}' is a directory, not a file")
-                    print(f"Please specify a filename, e.g., '{filepath}/PROJECT_STRUCTURE.txt'")
-                    retry = input("Try again? (Y/n): ").strip().lower()
-                    if retry == 'n':
-                        break
-                    continue
-                
-                # Check if parent directory exists or can be created
-                try:
-                    filepath.parent.mkdir(parents=True, exist_ok=True)
-                except PermissionError:
-                    print(f"\n✗ Permission denied: Cannot create directory {filepath.parent}")
-                    retry = input("Try a different path? (y/N): ").strip().lower()
-                    if retry != 'y':
-                        break
-                    continue
-                except Exception as e:
-                    print(f"\n✗ Error creating directory: {e}")
-                    retry = input("Try a different path? (y/N): ").strip().lower()
-                    if retry != 'y':
-                        break
-                    continue
-                
-                # Try to save the file
-                save_result = save_project_tree(files_to_include, project_root, str(filepath))
-                
-                # Verify the file actually exists
-                if filepath.exists():
-                    print(f"\n✓ Project tree saved to {filepath}")
-                    break
-                else:
-                    print(f"\n✗ Failed to create file: {save_result.get('message', 'Unknown error')}")
-                    retry = input("Try a different path? (y/N): ").strip().lower()
-                    if retry != 'y':
-                        break
-        
+        self.menu.display_header("Project Filesystem Tree")
+
+        result = ensure_doc_gen_structure()
+        if not result["success"]:
+            print(f"\nError: {result['message']}")
+            input("\nPress Enter to continue...")
+            return
+
+        output_name = input(
+            "\nOutput filename (Enter for 'project-tree.txt'): "
+        ).strip() or "project-tree.txt"
+
+        output_path = Path(OUTPUT_DIR) / output_name
+
+        try:
+            proc = subprocess.run(
+                ["tree", "-a", "-F"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            print("\nError: 'tree' command not found. Please install it.")
+            input("\nPress Enter to continue...")
+            return
+
+        # Page the output (long!)
+        pydoc.pager(proc.stdout)
+
+        # Save to file
+        output_path.write_text(proc.stdout, encoding="utf-8")
+
+        print(f"\nTree saved to: {output_path.resolve()}")
+        print(f"Lines written: {len(proc.stdout.splitlines())}")
+
         input("\nPress Enter to continue...")
-    
-    # Settings Menu Actions
-    
+
     def view_config(self):
         """Display current configuration with pagination."""
         self.menu.clear_screen()
-        self.menu.display_header("Current Configuration")
-        print(f"Config file: {self.menu.current_config}\n")
-        
-        # Load config
+
         result = load_config(self.menu.current_config)
-        
+
         if result['success']:
-            # Format config as string
-            config_text = f"Configuration from: {Path(self.menu.current_config).resolve()}\n\n"
-            config_text += yaml.dump(result['config'], default_flow_style=False, sort_keys=False)
-            
-            # Use pager (like 'less')
+            config_path = Path(self.menu.current_config).resolve()
+
+            header = (
+                "=" * 60 + "\n"
+                f"Configuration from: {config_path}\n"
+                + "=" * 60 + "\n\n"
+            )
+
+            config_text = header + yaml.dump(
+            result['config'],
+            default_flow_style=False,
+            sort_keys=False
+            )
+
             pydoc.pager(config_text)
         else:
-            print(f"Error loading config: {result['message']}")
+            print(f"\nError loading config: {result['message']}")
             input("\nPress Enter to continue...")
+
+        input("\nPress Enter to continue...")
     
     def edit_config_path(self):
         """Change configuration file path."""
@@ -396,3 +261,172 @@ class MenuActions:
         self.menu.display_header("Plugin Status")
         print("This will show loaded plugins and their status")
         input("\nPress Enter to continue...")
+    
+    # Ignore Patterns Management
+    
+    def manage_ignore_patterns(self):
+        """Main submenu for managing ignore patterns."""
+        while True:
+            self.menu.clear_screen()
+            self.menu.display_header("Manage Ignore Patterns")
+            print(f"File: {IGNORE_PATTERNS_FILE.resolve()}\n")
+            print("1. View Current Patterns")
+            print("2. Reset to Defaults (from .gitignore)")
+            print("3. Add New Pattern")
+            print("4. Remove Pattern")
+            print("5. Edit File Directly")
+            print("6. Back to Settings")
+            print()
+            
+            choice = self.menu.get_choice(self.ignore_patterns_actions.keys(), self.display_ignore_patterns_menu)
+            
+            # Execute selected action
+            action = self.ignore_patterns_actions[choice]
+            result = action()
+            
+            # Break back to settings if requested
+            if result == 'back':
+                break
+    
+    def display_ignore_patterns_menu(self):
+        """Display ignore patterns menu (for error handling)."""
+        self.menu.display_header("Manage Ignore Patterns")
+        print(f"File: {IGNORE_PATTERNS_FILE.resolve()}\n")
+        print("1. View Current Patterns")
+        print("2. Reset to Defaults (from .gitignore)")
+        print("3. Add New Pattern")
+        print("4. Remove Pattern")
+        print("5. Edit File Directly")
+        print("6. Back to Settings")
+        print()
+    
+    def view_ignore_patterns(self):
+        """Display current ignore patterns with line numbers."""
+        self.menu.clear_screen()
+        self.menu.display_header("Current Ignore Patterns")
+        
+        result = get_ignore_patterns()
+        
+        if result['success']:
+            # Format with line numbers
+            patterns_text = f"Ignore patterns from: {IGNORE_PATTERNS_FILE.resolve()}\n\n"
+            
+            for i, line in enumerate(result['patterns'], 1):
+                # Highlight hardcoded patterns
+                if any(hc in line for hc in HARDCODED_IGNORES) and not line.startswith('#'):
+                    patterns_text += f"{i:4d}  {line} [HARDCODED - cannot remove]\n"
+                else:
+                    patterns_text += f"{i:4d}  {line}\n"
+            
+            # Use pager
+            pydoc.pager(patterns_text)
+        else:
+            print(f"\nError: {result['message']}")
+        
+        input("\nPress Enter to continue...")
+    
+    def reset_ignore_patterns(self):
+        """Reset ignore patterns to defaults."""
+        self.menu.clear_screen()
+        self.menu.display_header("Reset Ignore Patterns")
+        
+        print("\nThis will reset ignore patterns to defaults.")
+        print("Current file will be backed up to .doc-gen/backups/")
+        print()
+        
+        confirm = input("Continue? (y/N): ").strip().lower()
+        
+        if confirm == 'y':
+            result = reset_patterns()
+            print(f"\n{result['message']}")
+        else:
+            print("\nReset cancelled")
+        
+        input("\nPress Enter to continue...")
+    
+    def add_ignore_pattern(self):
+        """Add a new ignore pattern."""
+        self.menu.clear_screen()
+        self.menu.display_header("Add Ignore Pattern")
+        
+        print("\nEnter pattern to ignore (e.g., '*.log' or '.venv/')")
+        print("Use trailing '/' for directories")
+        print()
+        
+        pattern = input("Pattern (or Enter to cancel): ").strip()
+        
+        if pattern:
+            result = add_pattern(pattern)
+            print(f"\n{result['message']}")
+        else:
+            print("\nCancelled")
+        
+        input("\nPress Enter to continue...")
+    
+    def remove_ignore_pattern(self):
+        """Remove an ignore pattern by line number."""
+        self.menu.clear_screen()
+        self.menu.display_header("Remove Ignore Pattern")
+        
+        # Show current patterns
+        result = get_ignore_patterns()
+        
+        if not result['success']:
+            print(f"\nError: {result['message']}")
+            input("\nPress Enter to continue...")
+            return
+        
+        print("\nCurrent patterns:\n")
+        for i, line in enumerate(result['patterns'], 1):
+            if any(hc in line for hc in HARDCODED_IGNORES) and not line.startswith('#'):
+                print(f"{i:4d}  {line} [HARDCODED]")
+            else:
+                print(f"{i:4d}  {line}")
+        
+        print("\nEnter line number to remove (or Enter to cancel)")
+        print("Note: Hardcoded patterns cannot be removed")
+        print()
+        
+        choice = input("Line number: ").strip()
+        
+        if choice:
+            try:
+                line_num = int(choice)
+                result = remove_pattern(line_num)
+                print(f"\n{result['message']}")
+            except ValueError:
+                print(f"\nError: Invalid line number '{choice}'")
+        else:
+            print("\nCancelled")
+        
+        input("\nPress Enter to continue...")
+    
+    def edit_ignore_patterns_file(self):
+        """Open ignore patterns file in user's editor."""
+        self.menu.clear_screen()
+        self.menu.display_header("Edit Ignore Patterns File")
+        
+        # Get editor from environment
+        editor = os.environ.get('EDITOR', 'nano')
+        
+        print(f"\nOpening {IGNORE_PATTERNS_FILE.resolve()}")
+        print(f"Editor: {editor}")
+        print()
+        print("Note: Hardcoded patterns (.doc-gen/, .git/, __pycache__/)")
+        print("      are enforced regardless of file contents")
+        print()
+        
+        input("Press Enter to open editor...")
+        
+        try:
+            subprocess.run([editor, str(IGNORE_PATTERNS_FILE)])
+            print("\nFile edited successfully")
+        except Exception as e:
+            print(f"\nError opening editor: {e}")
+            print(f"You can manually edit: {IGNORE_PATTERNS_FILE.resolve()}")
+        
+        input("\nPress Enter to continue...")
+    
+    def back_from_ignore_patterns(self):
+        """Return to settings menu."""
+        return 'back'

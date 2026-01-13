@@ -1,39 +1,46 @@
 """
 Project directory scanning for doc-gen.
-Walks directory tree, respects .gitignore, detects binary files, and collects files for documentation.
+Walks directory tree, respects ignore patterns, detects binary files, and collects files for documentation.
 """
-
 from pathlib import Path
 from fnmatch import fnmatch
-from doc_gen.core.gitignore import GitignoreParser
+from doc_gen.core.config import IGNORE_PATTERNS_FILE, HARDCODED_IGNORES
 
 
 class ProjectScanner:
     """
     Scan project directory tree and collect files for documentation.
 
-    Respects .gitignore patterns, excludes binary files, and applies additional exclusion rules.
+    Respects ignore patterns from .doc-gen/ignore-patterns.txt, excludes binary files, 
+    and applies additional exclusion rules.
     ALWAYS excludes .doc-gen/ directory (hardcoded - tool never documents itself).
     """
 
-    def __init__(self, root_dir, gitignore_path=None, exclusions=None):
+    def __init__(self, root_dir, exclusions=None, include_patterns=None):
         """
         Initialize project scanner.
 
         Args:
             root_dir: Root directory to scan (Path object or string)
-            gitignore_path: Path to .gitignore file (default: root_dir/.gitignore)
             exclusions: Additional glob patterns to exclude (list of strings)
+            include_patterns: Ignore patterns to temporarily include (list of strings)
         """
         self.root_dir = Path(root_dir).resolve()
 
-        # Set up gitignore parser
-        if gitignore_path is None:
-            gitignore_path = self.root_dir / '.gitignore'
-        self.gitignore = GitignoreParser(gitignore_path)
+        # Load patterns from centralized ignore-patterns.txt
+        self.ignore_patterns = self._load_ignore_patterns()
 
-        # Additional exclusion patterns (globs)
-        self.exclusions = exclusions or []
+        # Remove patterns user wants to include for documentation
+        if include_patterns:
+            self.ignore_patterns = [p for p in self.ignore_patterns 
+                                   if p not in include_patterns]
+
+        # ALWAYS enforce hardcoded exclusions (can never be removed)
+        self.ignore_patterns.extend(HARDCODED_IGNORES)
+
+        # Additional exclusion patterns (globs) - optional override
+        if exclusions:
+            self.ignore_patterns.extend(exclusions)
 
         # Track binary files for reporting
         self.binary_files = []
@@ -47,13 +54,26 @@ class ProjectScanner:
             'collected_files': 0
         }
 
+    def _load_ignore_patterns(self):
+        """Load patterns from .doc-gen/ignore-patterns.txt"""
+        if not IGNORE_PATTERNS_FILE.exists():
+            return []
+
+        patterns = []
+        for line in IGNORE_PATTERNS_FILE.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith('#'):
+                patterns.append(line)
+
+        return patterns
+
     def _is_binary_file(self, file_path):
         """
         Check if file is binary (non-text).
-        
+
         Args:
             file_path: Path to check
-            
+
         Returns:
             bool: True if binary file
         """
@@ -65,19 +85,27 @@ class ProjectScanner:
         except (UnicodeDecodeError, IOError):
             return True  # Binary or unreadable
 
-    def _matches_exclusion(self, path):
+    def _matches_pattern(self, path):
         """
-        Check if path matches any additional exclusion pattern.
+        Check if path matches any ignore pattern.
 
         Args:
             path: Path to check (Path object)
 
         Returns:
-            bool: True if path matches exclusion pattern
+            bool: True if path matches any ignore pattern
         """
-        for pattern in self.exclusions:
-            if fnmatch(path.name, pattern):
+        for pattern in self.ignore_patterns:
+            # Directory pattern (ends with /)
+            if pattern.endswith('/'):
+                dir_name = pattern.rstrip('/')
+                # Check if this directory name appears anywhere in the path
+                if dir_name in path.parts:
+                    return True
+            # File glob pattern
+            elif fnmatch(path.name, pattern):
                 return True
+        
         return False
 
     def _should_skip_dir(self, dir_path):
@@ -85,28 +113,24 @@ class ProjectScanner:
         Check if directory should be skipped.
 
         Args:
-            dir_path: Directory path relative to root (Path object)
+            dir_path: Directory path (Path object)
 
         Returns:
             bool: True if directory should be skipped
         """
-        # HARDCODED: Always skip .doc-gen directory
+        # HARDCODED: Always skip .doc-gen directory (redundant check, but explicit)
         if '.doc-gen' in dir_path.parts:
             return True
 
-        # Get relative path for gitignore matching
+        # Get relative path for pattern matching
         try:
             rel_path = dir_path.relative_to(self.root_dir)
         except ValueError:
             # Path not relative to root
             return True
 
-        # Check gitignore patterns
-        if self.gitignore.should_ignore(rel_path, is_dir=True):
-            return True
-
-        # Check additional exclusions
-        if self._matches_exclusion(dir_path):
+        # Check ignore patterns
+        if self._matches_pattern(rel_path):
             return True
 
         return False
@@ -116,28 +140,24 @@ class ProjectScanner:
         Check if file should be skipped.
 
         Args:
-            file_path: File path relative to root (Path object)
+            file_path: File path (Path object)
 
         Returns:
             tuple: (should_skip: bool, reason: str)
         """
-        # HARDCODED: Always skip files in .doc-gen directory
+        # HARDCODED: Always skip files in .doc-gen directory (redundant, but explicit)
         if '.doc-gen' in file_path.parts:
             return (True, 'doc-gen')
 
-        # Get relative path for gitignore matching
+        # Get relative path for pattern matching
         try:
             rel_path = file_path.relative_to(self.root_dir)
         except ValueError:
             return (True, 'not_in_project')
 
-        # Check gitignore patterns
-        if self.gitignore.should_ignore(rel_path, is_dir=False):
-            return (True, 'gitignore')
-
-        # Check additional exclusions
-        if self._matches_exclusion(file_path):
-            return (True, 'exclusion')
+        # Check ignore patterns
+        if self._matches_pattern(rel_path):
+            return (True, 'ignored')
 
         # Check if binary file
         if self._is_binary_file(file_path):
@@ -182,10 +202,8 @@ class ProjectScanner:
                 should_skip, reason = self._should_skip_file(item)
 
                 if should_skip:
-                    if reason == 'gitignore':
+                    if reason == 'ignored':
                         self.stats['ignored_files'] += 1
-                    elif reason == 'exclusion':
-                        self.stats['excluded_files'] += 1
                     elif reason == 'binary':
                         self.stats['binary_files'] += 1
                     # 'doc-gen' and 'not_in_project' don't increment stats
@@ -237,17 +255,16 @@ class ProjectScanner:
 
 
 # Convenience function for quick scans
-def quick_scan(root_dir, gitignore_path=None, exclusions=None):
+def quick_scan(root_dir, exclusions=None):
     """
     Quick scan of project directory.
 
     Args:
         root_dir: Root directory to scan
-        gitignore_path: Path to .gitignore file
-        exclusions: Additional exclusion patterns
+        exclusions: Additional exclusion patterns (optional)
 
     Returns:
         list: Collected file paths
     """
-    scanner = ProjectScanner(root_dir, gitignore_path, exclusions)
+    scanner = ProjectScanner(root_dir, exclusions)
     return scanner.scan_files()

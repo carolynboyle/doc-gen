@@ -15,6 +15,14 @@ DEFAULT_CONFIG_PATH = DOC_GEN_DIR / "config.yml"
 DEFAULT_MANIFEST_PATH = DOC_GEN_DIR / "manifest.yml"
 BACKUP_DIR = DOC_GEN_DIR / "backups"
 OUTPUT_DIR = DOC_GEN_DIR / "output"
+IGNORE_PATTERNS_FILE = DOC_GEN_DIR / "ignore-patterns.txt"
+
+# Hardcoded patterns that are ALWAYS excluded
+HARDCODED_IGNORES = [
+    '.doc-gen/',
+    '.git/',
+    '__pycache__/',
+]
 
 
 def ensure_doc_gen_structure():
@@ -25,6 +33,7 @@ def ensure_doc_gen_structure():
         .doc-gen/
         .doc-gen/backups/
         .doc-gen/output/
+        .doc-gen/ignore-patterns.txt (if missing)
     
     Returns:
         dict: {'success': bool, 'message': str}
@@ -32,10 +41,22 @@ def ensure_doc_gen_structure():
     try:
         # Create main directory
         DOC_GEN_DIR.mkdir(exist_ok=True)
-        
+
         # Create subdirectories
         BACKUP_DIR.mkdir(exist_ok=True)
         OUTPUT_DIR.mkdir(exist_ok=True)
+        
+        # Auto-create empty manifest.yml if it doesn't exist
+        manifest_path = DOC_GEN_DIR / "manifest.yml"
+        if not manifest_path.exists():
+            manifest_path.write_text(
+                "# Auto-generated manifest - will be populated when you scan project\n"
+                "documents: []\n",
+                encoding='utf-8'
+            )
+        # Initialize ignore patterns file if it doesn't exist
+        if not IGNORE_PATTERNS_FILE.exists():
+            _initialize_ignore_patterns()
         
         return {
             'success': True,
@@ -55,6 +76,189 @@ def ensure_doc_gen_structure():
         return {
             'success': False,
             'message': f'Unexpected error creating directory structure: {str(e)}'
+        }
+
+
+def _initialize_ignore_patterns():
+    """
+    Initialize ignore-patterns.txt file.
+    Copies from .gitignore if it exists, otherwise creates with defaults.
+    Always includes hardcoded patterns at the top.
+    """
+    gitignore = Path('.gitignore')
+    
+    # Start with hardcoded patterns
+    content = [
+        "# ALWAYS IGNORED (hardcoded, do not remove):",
+        "# These patterns are enforced by doc-gen and cannot be documented",
+    ]
+    content.extend(HARDCODED_IGNORES)
+    content.append("")
+    content.append("# Patterns below are customizable:")
+    content.append("")
+    
+    # Add patterns from .gitignore if it exists
+    if gitignore.exists():
+        content.append("# Copied from .gitignore:")
+        gitignore_content = gitignore.read_text().splitlines()
+        content.extend(gitignore_content)
+    else:
+        # Add some sensible defaults
+        content.extend([
+            "# Common patterns to ignore:",
+            "*.pyc",
+            "*.pyo",
+            "*.log",
+            ".venv/",
+            "venv/",
+            ".env",
+            "*.sqlite",
+            "*.db",
+            ".DS_Store",
+        ])
+    
+    # Write the file
+    IGNORE_PATTERNS_FILE.write_text('\n'.join(content), encoding='utf-8')
+
+
+def reset_ignore_patterns():
+    """
+    Reset ignore-patterns.txt to defaults (from .gitignore or built-in defaults).
+    
+    Returns:
+        dict: {'success': bool, 'message': str}
+    """
+    try:
+        if IGNORE_PATTERNS_FILE.exists():
+            # Backup the old file
+            backup_name = BACKUP_DIR / f"ignore-patterns-{IGNORE_PATTERNS_FILE.stat().st_mtime:.0f}.txt"
+            shutil.copy(IGNORE_PATTERNS_FILE, backup_name)
+        
+        _initialize_ignore_patterns()
+        
+        return {
+            'success': True,
+            'message': f'Ignore patterns reset to defaults'
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'message': f'Error resetting ignore patterns: {str(e)}'
+        }
+
+
+def add_ignore_pattern(pattern):
+    """
+    Add a new pattern to ignore-patterns.txt.
+    
+    Args:
+        pattern: Pattern string to add
+        
+    Returns:
+        dict: {'success': bool, 'message': str}
+    """
+    try:
+        pattern = pattern.strip()
+        if not pattern or pattern.startswith('#'):
+            return {
+                'success': False,
+                'message': 'Invalid pattern (empty or comment)'
+            }
+        
+        # Read existing patterns
+        content = IGNORE_PATTERNS_FILE.read_text().splitlines()
+        
+        # Check if pattern already exists
+        if pattern in content:
+            return {
+                'success': False,
+                'message': f'Pattern already exists: {pattern}'
+            }
+        
+        # Add new pattern
+        content.append(pattern)
+        IGNORE_PATTERNS_FILE.write_text('\n'.join(content), encoding='utf-8')
+        
+        return {
+            'success': True,
+            'message': f'Added pattern: {pattern}'
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'message': f'Error adding pattern: {str(e)}'
+        }
+
+
+def remove_ignore_pattern(line_number):
+    """
+    Remove a pattern from ignore-patterns.txt by line number.
+    
+    Args:
+        line_number: Line number to remove (1-indexed)
+        
+    Returns:
+        dict: {'success': bool, 'message': str}
+    """
+    try:
+        content = IGNORE_PATTERNS_FILE.read_text().splitlines()
+        
+        if line_number < 1 or line_number > len(content):
+            return {
+                'success': False,
+                'message': f'Invalid line number: {line_number}'
+            }
+        
+        # Check if it's a hardcoded pattern (in first section)
+        line = content[line_number - 1]
+        if any(hc in line for hc in HARDCODED_IGNORES):
+            return {
+                'success': False,
+                'message': 'Cannot remove hardcoded patterns'
+            }
+        
+        # Remove the line
+        removed = content.pop(line_number - 1)
+        IGNORE_PATTERNS_FILE.write_text('\n'.join(content), encoding='utf-8')
+        
+        return {
+            'success': True,
+            'message': f'Removed: {removed}'
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'message': f'Error removing pattern: {str(e)}'
+        }
+
+
+def get_ignore_patterns():
+    """
+    Get current ignore patterns with line numbers.
+    
+    Returns:
+        dict: {'success': bool, 'patterns': list, 'message': str}
+    """
+    try:
+        if not IGNORE_PATTERNS_FILE.exists():
+            return {
+                'success': False,
+                'message': 'Ignore patterns file not found',
+                'patterns': []
+            }
+        
+        content = IGNORE_PATTERNS_FILE.read_text().splitlines()
+        
+        return {
+            'success': True,
+            'patterns': content,
+            'message': f'{len(content)} lines in ignore patterns file'
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'message': f'Error reading ignore patterns: {str(e)}',
+            'patterns': []
         }
 
 
@@ -131,23 +335,34 @@ def load_config(config_path=None):
     if config_path is None:
         config_path = DEFAULT_CONFIG_PATH
     
-    config_file = Path(config_path)
+    config_path = Path(config_path)
     
-    # If config doesn't exist, create it with defaults
-    if not config_file.exists():
-        init_result = initialize_config(config_path)
-        if not init_result['success']:
-            return init_result
+    # If config doesn't exist, return default config
+    if not config_path.exists():
+        return {
+            'success': True,
+            'config': _get_default_config(),
+            'message': 'Using default configuration (no config file found)'
+        }
     
-    # Load the YAML file
+    # Try to load the config file
     try:
-        with open(config_file, 'r') as f:
-            config_data = yaml.safe_load(f)
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        
+        if config is None:
+            config = _get_default_config()
         
         return {
             'success': True,
-            'config': config_data,
-            'message': f'Config loaded from {config_file}'
+            'config': config,
+            'message': f'Configuration loaded from {config_path}'
+        }
+    except yaml.YAMLError as e:
+        return {
+            'success': False,
+            'config': {},
+            'message': f'Error parsing YAML config: {str(e)}'
         }
     except Exception as e:
         return {
@@ -155,3 +370,31 @@ def load_config(config_path=None):
             'config': {},
             'message': f'Error loading config: {str(e)}'
         }
+
+
+def _get_default_config():
+    """
+    Get default configuration when no config file exists.
+    
+    Returns:
+        dict: Default configuration
+    """
+    return {
+        'project': {
+            'name': 'My Project',
+            'root': '.'
+        },
+        'output': {
+            'base_dir': str(OUTPUT_DIR),
+            'format': 'markdown'
+        },
+        'syntax_map': {
+            '.py': 'python',
+            '.sh': 'bash',
+            '.yml': 'yaml',
+            '.yaml': 'yaml',
+            '.json': 'json',
+            '.md': 'markdown',
+            '.txt': 'text',
+        }
+    }

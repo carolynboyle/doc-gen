@@ -5,14 +5,24 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "doc-gen"
 version = "0.1.0"
-description = "Documentation generator that creates syntax-highlighted markdown from project source code"
+description = "Filesystem-driven documentation generator that creates syntax-highlighted markdown from project source code"
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "MIT"}
+license = { text = "MIT" }
+
 authors = [
-    {name = "Carolyn Boyle", email = "carolyn@whycantyoujust.tech"}
+    { name = "Carolyn Boyle", email = "carolyn@whycantyoujust.tech" }
 ]
-keywords = ["documentation", "markdown", "code", "generator"]
+
+keywords = [
+    "documentation",
+    "markdown",
+    "code",
+    "generator",
+    "cli",
+    "filesystem"
+]
+
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -43,6 +53,17 @@ doc-gen = "doc_gen.ui.menu:main"
 Homepage = "https://github.com/carolynboyle/doc-gen"
 Repository = "https://github.com/carolynboyle/doc-gen"
 Issues = "https://github.com/carolynboyle/doc-gen/issues"
+Documentation = "https://github.com/carolynboyle/doc-gen/tree/main/docs"
 
 [tool.setuptools]
-packages = ["doc_gen", "doc_gen.core", "doc_gen.ui", "doc_gen.utils", "doc_gen.plugins"]
+packages = [
+    "doc_gen",
+    "doc_gen.core",
+    "doc_gen.ui",
+    "doc_gen.utils",
+    "doc_gen.plugins"
+]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"*" = ["*.template"]
