@@ -1,8 +1,12 @@
+project-clean/
+
 # Doc-gen generated files (CRITICAL - don't commit output)
 .doc-gen/
 
 # Legacy generated docs (removed)
 docs/mirror/
+
+
 
 # Python
 .venv/

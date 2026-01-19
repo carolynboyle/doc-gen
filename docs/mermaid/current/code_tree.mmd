@@ -1,0 +1,23 @@
+flowchart TD
+    DocGen["doc_gen package"]
+
+    DocGen --> CLI["cli.py"]
+    CLI --> CLI_Main["main"]
+
+    DocGen --> Menu["menu.py"]
+    Menu --> Menu_Run["run_menu"]
+    Menu --> Menu_Handle["handle_choice"]
+    Menu --> Menu_Prompt["prompt_user"]
+
+    DocGen --> Engine["engine.py"]
+
+    Engine --> DGE["DocGenEngine"]
+    DGE --> Scan["scan_project"]
+    DGE --> BuildManifest["build_manifest"]
+    DGE --> Document["document"]
+    DGE --> Status["status"]
+
+    Engine --> ME["MenuEngine"]
+    ME --> IntScan["interactive_scan"]
+    ME --> EditCfg["edit_config"]
+    ME --> EditIgnore["edit_ignore_patterns"]

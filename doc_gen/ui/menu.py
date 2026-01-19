@@ -6,7 +6,7 @@ Provides interactive menu-driven interface.
 from pathlib import Path
 import sys
 import os
-from doc_gen.core.config import ensure_doc_gen_structure, DEFAULT_CONFIG_PATH
+from doc_gen.core.config import ensure_doc_gen_structure, DocGenConfig
 from doc_gen.ui.menu_actions import MenuActions
 
 # Ensure .doc-gen/ structure exists before anything else
@@ -31,7 +31,7 @@ class MenuSystem:
     def __init__(self):
         """Initialize menu system with dispatch mappings."""
         self.running = True
-        self.current_config = ".doc-gen/config.yml"  # Default config path
+        self.current_config = str(DocGenConfig.CONFIG_FILE)  # Default config path
         
         # Create actions handler (needs self reference for menu utilities)
         self.actions = MenuActions(self)
@@ -85,7 +85,7 @@ class MenuSystem:
     def display_settings_menu(self):
         """Display settings submenu options."""
         self.display_header("Settings")
-        print("1. Initialize Config - Create .doc-gen/config.yml template")
+        print("1. Initialize/Reset Config - Create or reset .doc-gen/config.yml")
         print("2. View Current Configuration")
         print("3. Edit Configuration Path")
         print("4. Manage Ignore Patterns")

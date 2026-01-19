@@ -1,35 +1,20 @@
 """
 Menu action handlers for doc-gen.
-Contains all the actual functionality behind menu options.
+Pure UI layer - handles user interaction, displays results.
+All business logic delegated to engine.py.
 """
 from pathlib import Path
 import os
 import pydoc
 import subprocess
-import yaml
-from doc_gen.core.config import ensure_doc_gen_structure, OUTPUT_DIR
-from doc_gen.core.config import (
-    initialize_config as init_config, 
-    load_config,
-    DEFAULT_MANIFEST_PATH,
-    OUTPUT_DIR,
-    get_ignore_patterns,
-    reset_ignore_patterns as reset_patterns,
-    add_ignore_pattern as add_pattern,
-    remove_ignore_pattern as remove_pattern,
-    IGNORE_PATTERNS_FILE,
-    HARDCODED_IGNORES
-)
-from doc_gen.core.builder import run_interactive_mode, run_generate_mode, run_check_mode
-# from doc_gen.core.manifest import read_manifest
-# from doc_gen.core.scanner import ProjectScanner
-# from doc_gen.utils.prompts import prompt_file_selection
-# from doc_gen.utils.tree import generate_project_tree, save_project_tree
 
+# Import from engine for clean API
+from doc_gen.core import engine
+from doc_gen.core.config import DocGenConfig
 
 
 class MenuActions:
-    """Handlers for menu actions."""
+    """Handlers for menu actions - pure UI layer."""
     
     def __init__(self, menu_system):
         """
@@ -50,7 +35,9 @@ class MenuActions:
             '6': self.back_from_ignore_patterns
         }
     
+    # ========================================================================
     # Main Menu Actions
+    # ========================================================================
     
     def scan_project(self):
         """Scan project and select files to document (build manifest)."""
@@ -67,13 +54,13 @@ class MenuActions:
         if not project_path:
             project_path = None  # Will default to current directory
         
-        # Run scan and selection (respects ignore patterns automatically)
-        result = run_interactive_mode(
-            project_root=project_path,
+        # Call engine function
+        result = engine.select_manifest_files(
+            project_path=project_path,
             config_path=self.menu.current_config
         )
         
-        # Clear screen before showing result (prevents scroll spam from rapid Enter)
+        # Clear screen before showing result
         self.menu.clear_screen()
         
         # Display result
@@ -92,10 +79,10 @@ class MenuActions:
         # Get manifest path from user (or use default)
         manifest_path = input(f"\nName for selected files list (Enter for default): ").strip()
         if not manifest_path:
-            manifest_path = str(DEFAULT_MANIFEST_PATH)
+            manifest_path = None  # Will use default
         
-        # Run generate mode
-        result = run_generate_mode(
+        # Call engine function
+        result = engine.generate_documentation(
             manifest_path=manifest_path,
             config_path=self.menu.current_config
         )
@@ -118,14 +105,15 @@ class MenuActions:
         self.menu.display_header("Check Mode - Dry Run")
         
         # Get manifest path from user (or use default)
-        manifest_path = input(f"\nManifest file (Enter for '{DEFAULT_MANIFEST_PATH}'): ").strip()
+        default_manifest = str(DocGenConfig.MANIFEST_FILE)
+        manifest_path = input(f"\nManifest file (Enter for '{default_manifest}'): ").strip()
         if not manifest_path:
-            manifest_path = str(DEFAULT_MANIFEST_PATH)
+            manifest_path = None
         
         print("\nRunning check mode...")
         
-        # Run check mode
-        result = run_check_mode(
+        # Call engine function
+        result = engine.preview_generation(
             manifest_path=manifest_path,
             config_path=self.menu.current_config
         )
@@ -154,12 +142,12 @@ class MenuActions:
             input("\nPress Enter to continue...")
     
     def initialize_config(self):
-        """Create configuration template from doc-config.yml.template."""
+        """Create or reset configuration file."""
         self.menu.clear_screen()
-        self.menu.display_header("Initialize Configuration")
+        self.menu.display_header("Initialize/Reset Configuration")
         
-        # Call the real function from config module
-        result = init_config()
+        # Call engine function
+        result = engine.initialize_config()
         
         # Display the result
         print(f"\n{result['message']}")
@@ -169,45 +157,27 @@ class MenuActions:
         
         input("\nPress Enter to continue...")
     
-   
-
     def get_project_tree(self):
         """Generate and display project filesystem tree."""
         self.menu.clear_screen()
         self.menu.display_header("Project Filesystem Tree")
 
-        result = ensure_doc_gen_structure()
-        if not result["success"]:
-            print(f"\nError: {result['message']}")
-            input("\nPress Enter to continue...")
-            return
-
+        # Get output filename from user
         output_name = input(
             "\nOutput filename (Enter for 'project-tree.txt'): "
-        ).strip() or "project-tree.txt"
+        ).strip() or None
 
-        output_path = Path(OUTPUT_DIR) / output_name
+        # Call engine function
+        result = engine.get_project_tree(output_name=output_name)
 
-        try:
-            proc = subprocess.run(
-                ["tree", "-a", "-F"],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-        except FileNotFoundError:
-            print("\nError: 'tree' command not found. Please install it.")
-            input("\nPress Enter to continue...")
-            return
+        if result['success']:
+            # Page the output (long!)
+            pydoc.pager(result['tree_text'])
 
-        # Page the output (long!)
-        pydoc.pager(proc.stdout)
-
-        # Save to file
-        output_path.write_text(proc.stdout, encoding="utf-8")
-
-        print(f"\nTree saved to: {output_path.resolve()}")
-        print(f"Lines written: {len(proc.stdout.splitlines())}")
+            print(f"\nTree saved to: {result['output_path'].resolve()}")
+            print(f"Lines written: {len(result['tree_text'].splitlines())}")
+        else:
+            print(f"\nError: {result['message']}")
 
         input("\nPress Enter to continue...")
 
@@ -215,11 +185,14 @@ class MenuActions:
         """Display current configuration with pagination."""
         self.menu.clear_screen()
 
-        result = load_config(self.menu.current_config)
+        # Call engine function
+        result = engine.load_config(self.menu.current_config)
 
         if result['success']:
             config_path = Path(self.menu.current_config).resolve()
 
+            # Format for display
+            import yaml
             header = (
                 "=" * 60 + "\n"
                 f"Configuration from: {config_path}\n"
@@ -227,9 +200,9 @@ class MenuActions:
             )
 
             config_text = header + yaml.dump(
-            result['config'],
-            default_flow_style=False,
-            sort_keys=False
+                result['config'],
+                default_flow_style=False,
+                sort_keys=False
             )
 
             pydoc.pager(config_text)
@@ -262,14 +235,16 @@ class MenuActions:
         print("This will show loaded plugins and their status")
         input("\nPress Enter to continue...")
     
+    # ========================================================================
     # Ignore Patterns Management
+    # ========================================================================
     
     def manage_ignore_patterns(self):
         """Main submenu for managing ignore patterns."""
         while True:
             self.menu.clear_screen()
             self.menu.display_header("Manage Ignore Patterns")
-            print(f"File: {IGNORE_PATTERNS_FILE.resolve()}\n")
+            print(f"File: {DocGenConfig.IGNORE_PATTERNS_FILE.resolve()}\n")
             print("1. View Current Patterns")
             print("2. Reset to Defaults (from .gitignore)")
             print("3. Add New Pattern")
@@ -291,7 +266,7 @@ class MenuActions:
     def display_ignore_patterns_menu(self):
         """Display ignore patterns menu (for error handling)."""
         self.menu.display_header("Manage Ignore Patterns")
-        print(f"File: {IGNORE_PATTERNS_FILE.resolve()}\n")
+        print(f"File: {DocGenConfig.IGNORE_PATTERNS_FILE.resolve()}\n")
         print("1. View Current Patterns")
         print("2. Reset to Defaults (from .gitignore)")
         print("3. Add New Pattern")
@@ -305,15 +280,16 @@ class MenuActions:
         self.menu.clear_screen()
         self.menu.display_header("Current Ignore Patterns")
         
-        result = get_ignore_patterns()
+        # Call engine function
+        result = engine.view_ignore_patterns()
         
         if result['success']:
             # Format with line numbers
-            patterns_text = f"Ignore patterns from: {IGNORE_PATTERNS_FILE.resolve()}\n\n"
+            patterns_text = f"Ignore patterns from: {DocGenConfig.IGNORE_PATTERNS_FILE.resolve()}\n\n"
             
             for i, line in enumerate(result['patterns'], 1):
                 # Highlight hardcoded patterns
-                if any(hc in line for hc in HARDCODED_IGNORES) and not line.startswith('#'):
+                if any(hc in line for hc in DocGenConfig.HARDCODED_IGNORES) and not line.startswith('#'):
                     patterns_text += f"{i:4d}  {line} [HARDCODED - cannot remove]\n"
                 else:
                     patterns_text += f"{i:4d}  {line}\n"
@@ -337,7 +313,7 @@ class MenuActions:
         confirm = input("Continue? (y/N): ").strip().lower()
         
         if confirm == 'y':
-            result = reset_patterns()
+            result = engine.reset_patterns()
             print(f"\n{result['message']}")
         else:
             print("\nReset cancelled")
@@ -356,7 +332,7 @@ class MenuActions:
         pattern = input("Pattern (or Enter to cancel): ").strip()
         
         if pattern:
-            result = add_pattern(pattern)
+            result = engine.add_pattern(pattern)
             print(f"\n{result['message']}")
         else:
             print("\nCancelled")
@@ -369,7 +345,7 @@ class MenuActions:
         self.menu.display_header("Remove Ignore Pattern")
         
         # Show current patterns
-        result = get_ignore_patterns()
+        result = engine.view_ignore_patterns()
         
         if not result['success']:
             print(f"\nError: {result['message']}")
@@ -378,7 +354,7 @@ class MenuActions:
         
         print("\nCurrent patterns:\n")
         for i, line in enumerate(result['patterns'], 1):
-            if any(hc in line for hc in HARDCODED_IGNORES) and not line.startswith('#'):
+            if any(hc in line for hc in DocGenConfig.HARDCODED_IGNORES) and not line.startswith('#'):
                 print(f"{i:4d}  {line} [HARDCODED]")
             else:
                 print(f"{i:4d}  {line}")
@@ -392,7 +368,7 @@ class MenuActions:
         if choice:
             try:
                 line_num = int(choice)
-                result = remove_pattern(line_num)
+                result = engine.remove_pattern(line_num)
                 print(f"\n{result['message']}")
             except ValueError:
                 print(f"\nError: Invalid line number '{choice}'")
@@ -409,7 +385,7 @@ class MenuActions:
         # Get editor from environment
         editor = os.environ.get('EDITOR', 'nano')
         
-        print(f"\nOpening {IGNORE_PATTERNS_FILE.resolve()}")
+        print(f"\nOpening {DocGenConfig.IGNORE_PATTERNS_FILE.resolve()}")
         print(f"Editor: {editor}")
         print()
         print("Note: Hardcoded patterns (.doc-gen/, .git/, __pycache__/)")
@@ -419,11 +395,11 @@ class MenuActions:
         input("Press Enter to open editor...")
         
         try:
-            subprocess.run([editor, str(IGNORE_PATTERNS_FILE)])
+            subprocess.run([editor, str(DocGenConfig.IGNORE_PATTERNS_FILE)])
             print("\nFile edited successfully")
         except Exception as e:
             print(f"\nError opening editor: {e}")
-            print(f"You can manually edit: {IGNORE_PATTERNS_FILE.resolve()}")
+            print(f"You can manually edit: {DocGenConfig.IGNORE_PATTERNS_FILE.resolve()}")
         
         input("\nPress Enter to continue...")
     
