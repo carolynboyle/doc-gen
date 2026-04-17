@@ -1,0 +1,43 @@
+# overview.mmd
+
+**Path:** docs/mermaid/planned/overview.mmd
+**Syntax:** text
+**Generated:** 2026-03-26 19:01:15
+
+```
+flowchart TD
+    Start([Start])
+
+    subgraph UI["UI Layer"]
+        Menu[Interactive Menu]
+        CLI[CLI Arguments]
+    end
+
+    subgraph Core["Core Layer"]
+        Engine[engine.py]
+        Scan["scan_project"]
+        Render["render_docs"]
+    end
+
+    subgraph Runtime["Runtime Layer"]
+        FS[Filesystem Scan]
+        State[Load or Save Manifest]
+        Output[Write Output and Backups]
+    end
+
+    Start --> Menu
+    Start --> CLI
+
+    Menu --> Engine
+    CLI --> Engine
+
+    Engine --> Scan
+    Engine --> Render
+
+    Scan --> FS
+    Scan --> State
+
+    Render --> State
+    Render --> Output
+
+```

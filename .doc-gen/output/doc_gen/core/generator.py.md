@@ -1,3 +1,10 @@
+# generator.py
+
+**Path:** doc_gen/core/generator.py
+**Syntax:** python
+**Generated:** 2026-03-26 19:01:15
+
+```python
 """
 Markdown documentation generator for doc-gen.
 Reads manifest and generates syntax-highlighted markdown files.
@@ -14,6 +21,7 @@ class MarkdownGenerator:
     
     Creates mirror directory structure and syntax-highlighted markdown files.
     """
+    
     def __init__(self, manifest_path, project_root, output_dir, syntax_map=None):
         """
         Initialize markdown generator.
@@ -195,7 +203,7 @@ class MarkdownGenerator:
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        print("\nGenerating documentation...")
+        print(f"\nGenerating documentation...")
         print(f"Source: {self.project_root}")
         print(f"Output: {self.output_dir}")
         print(f"Files: {len(documents)}\n")
@@ -206,7 +214,7 @@ class MarkdownGenerator:
         
         # Summary
         print(f"\n{'=' * 50}")
-        print("Generation complete!")
+        print(f"Generation complete!")
         print(f"  Generated: {self.stats['generated']}")
         print(f"  Skipped:   {self.stats['skipped']}")
         print(f"  Errors:    {self.stats['errors']}")
@@ -221,8 +229,10 @@ class MarkdownGenerator:
     
     def print_stats(self):
         """Print generation statistics."""
-        print("\n=== Generation Statistics ===")
+        print(f"\n=== Generation Statistics ===")
         print(f"Total files:  {self.stats['total_files']}")
         print(f"Generated:    {self.stats['generated']}")
         print(f"Skipped:      {self.stats['skipped']}")
         print(f"Errors:       {self.stats['errors']}")
+
+```

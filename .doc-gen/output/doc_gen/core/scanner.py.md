@@ -1,3 +1,10 @@
+# scanner.py
+
+**Path:** doc_gen/core/scanner.py
+**Syntax:** python
+**Generated:** 2026-03-26 19:01:15
+
+```python
 """
 Project directory scanning for doc-gen.
 Walks directory tree, respects ignore patterns, 
@@ -268,3 +275,4 @@ def quick_scan(root_dir, exclusions=None):
     scanner = ProjectScanner(root_dir, exclusions)
     return scanner.scan_files()
     
+```

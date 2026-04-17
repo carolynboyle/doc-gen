@@ -1,4 +1,12 @@
-"""DocumentationBuilder
+# builder.py
+
+**Path:** doc_gen/core/builder.py
+**Syntax:** python
+**Generated:** 2026-03-26 19:01:15
+
+```python
+''' DocumentationBuilder '''
+"""
 Documentation builder orchestration for doc-gen.
 Coordinates scanning, prompting, and manifest generation.
 """
@@ -6,10 +14,6 @@ Coordinates scanning, prompting, and manifest generation.
 from pathlib import Path
 from doc_gen.core.scanner import ProjectScanner
 from doc_gen.core.config import load_config, DEFAULT_MANIFEST_PATH, DEFAULT_CONFIG_PATH
-from doc_gen.utils.prompts import prompt_file_selection
-from doc_gen.core.manifest import write_manifest
-from doc_gen.core.manifest import read_manifest
-from doc_gen.core.generator import MarkdownGenerator
 
 
 def run_interactive_mode(project_root=None, config_path=None, include_patterns=None):
@@ -24,6 +28,9 @@ def run_interactive_mode(project_root=None, config_path=None, include_patterns=N
     Returns:
         dict: {'success': bool, 'message': str, 'files': list}
     """
+    from doc_gen.utils.prompts import prompt_file_selection
+    from doc_gen.core.manifest import write_manifest
+
     # Default to current directory
     if project_root is None:
         project_root = Path.cwd()
@@ -36,20 +43,20 @@ def run_interactive_mode(project_root=None, config_path=None, include_patterns=N
 
     # Load configuration
     config_result = load_config(config_path)
-    if not config_result["success"]:
+    if not config_result['success']:
         return {
-            "success": False,
-            "message": f"Could not load config: {config_result['message']}",
-            "files": [],
+            'success': False,
+            'message': f"Could not load config: {config_result['message']}",
+            'files': []
         }
 
-    config = config_result["config"]
+    config = config_result['config']
 
     # Get exclusions from config (optional additional patterns beyond ignore-patterns.txt)
-    exclusions = config.get("exclusions", [])
+    exclusions = config.get('exclusions', [])
 
     print(f"\nScanning project: {project_root}")
-    print("Using ignore patterns: .doc-gen/ignore-patterns.txt")
+    print(f"Using ignore patterns: .doc-gen/ignore-patterns.txt")
     if exclusions:
         print(f"Additional exclusions: {len(exclusions)} patterns")
     if include_patterns:
@@ -59,64 +66,65 @@ def run_interactive_mode(project_root=None, config_path=None, include_patterns=N
     # Scanner automatically reads from .doc-gen/ignore-patterns.txt
     # include_patterns lets us temporarily include normally-ignored files
     scanner = ProjectScanner(
-        root_dir=project_root, exclusions=exclusions, include_patterns=include_patterns
+        root_dir=project_root,
+        exclusions=exclusions,
+        include_patterns=include_patterns
     )
 
     files = scanner.scan_files()
     scanner.print_stats()
 
     if not files:
-        return {"success": False, "message": "No files found to document", "files": []}
+        return {
+            'success': False,
+            'message': 'No files found to document',
+            'files': []
+        }
 
     print(f"\nFound {len(files)} files to potentially document")
 
     # Interactive prompting for each file
     print("\nSelect files to include in documentation:")
-    print("(Press Enter or 'y' to include, 'n' to skip, 'a' to select all)\n")
-    select_all = input("Select all files? [y/N]: ").strip().lower() in ("y", "a")
-    if select_all:
-        selected_files = list(files)
-    else:
-        selected_files = []
-        for filepath in files:
-            if prompt_file_selection(filepath, relative_to=project_root):
-                selected_files.append(filepath)
+    print("(Press Enter or 'y' to include, 'n' to skip)\n")
+
+    selected_files = []
+    for filepath in files:
+        if prompt_file_selection(filepath, relative_to=project_root):
+            selected_files.append(filepath)
 
     # Summary
     print(f"\n{'=' * 50}")
     print(f"Selected {len(selected_files)} of {len(files)} files")
-    print("=" * 50)
+    print('=' * 50)
 
     if not selected_files:
         return {
-            "success": False,
-            "message": "No files selected for documentation",
-            "files": [],
+            'success': False,
+            'message': 'No files selected for documentation',
+            'files': []
         }
 
     # Get manifest output path from config
-    manifest_path = config.get("output", {}).get(
-        "manifest_file", str(DEFAULT_MANIFEST_PATH)
-    )
+    manifest_path = config.get('output', {}).get('manifest_file', str(DEFAULT_MANIFEST_PATH))
 
     # Write manifest
     print(f"\nWriting manifest to {manifest_path}...")
     manifest_result = write_manifest(selected_files, project_root, manifest_path)
 
-    if manifest_result["success"]:
+    if manifest_result['success']:
         print(f"✓ {manifest_result['message']}")
     else:
         print(f"✗ {manifest_result['message']}")
         return {
-            "success": False,
-            "message": manifest_result["message"],
-            "files": selected_files,
+            'success': False,
+            'message': manifest_result['message'],
+            'files': selected_files
         }
 
     return {
-        "success": True,
-        "message": f"Manifest created with {manifest_result['count']} files",
-        "files": selected_files,
+        'success': True,
+        'message': f"Manifest created with {manifest_result['count']} files",
+        'files': selected_files
     }
 
 
@@ -131,48 +139,51 @@ def run_generate_mode(manifest_path=None, config_path=None):
     Returns:
         dict: {'success': bool, 'message': str, 'stats': dict}
     """
+    from doc_gen.core.generator import MarkdownGenerator
+
     # Use defaults if not specified
     if manifest_path is None:
         manifest_path = DEFAULT_MANIFEST_PATH
     if config_path is None:
         config_path = DEFAULT_CONFIG_PATH
+    
     manifest_path = Path(manifest_path)
+
     # Check if manifest exists
     if not manifest_path.exists():
         return {
-            "success": False,
-            "message": f"Manifest not found: {manifest_path}",
-            "stats": {},
+            'success': False,
+            'message': f'Manifest not found: {manifest_path}',
+            'stats': {}
         }
 
     # Load configuration
     config_result = load_config(config_path)
-    if not config_result["success"]:
+    if not config_result['success']:
         return {
-            "success": False,
-            "message": f"Could not load config: {config_result['message']}",
-            "stats": {},
+            'success': False,
+            'message': f"Could not load config: {config_result['message']}",
+            'stats': {}
         }
 
-    config = config_result["config"]
+    config = config_result['config']
 
     # Get settings from config
-    project_root = Path(config.get("project", {}).get("root", ".")).resolve()
-    output_dir = Path(config.get("output", {}).get("base_dir", "docs/mirror"))
-    syntax_map = config.get("syntax_map", {})
+    project_root = Path(config.get('project', {}).get('root', '.')).resolve()
+    output_dir = Path(config.get('output', {}).get('base_dir', 'docs/mirror'))
+    syntax_map = config.get('syntax_map', {})
 
     # Create generator and run
     generator = MarkdownGenerator(
         manifest_path=manifest_path,
         project_root=project_root,
         output_dir=output_dir,
-        syntax_map=syntax_map,
+        syntax_map=syntax_map
     )
 
     result = generator.generate_all()
 
     return result
-
 
 def run_check_mode(manifest_path=None, config_path=None):
     """
@@ -185,43 +196,50 @@ def run_check_mode(manifest_path=None, config_path=None):
     Returns:
         dict: {'success': bool, 'message': str, 'report': str}
     """
+    from doc_gen.core.manifest import read_manifest
+
     # Use defaults if not specified
     if manifest_path is None:
         manifest_path = DEFAULT_MANIFEST_PATH
     if config_path is None:
         config_path = DEFAULT_CONFIG_PATH
+    
     manifest_path = Path(manifest_path)
 
     # Check if manifest exists
     if not manifest_path.exists():
         return {
-            "success": False,
-            "message": f"Manifest not found: {manifest_path}",
-            "report": "",
+            'success': False,
+            'message': f'Manifest not found: {manifest_path}',
+            'report': ''
         }
 
     # Load configuration
     config_result = load_config(config_path)
-    if not config_result["success"]:
+    if not config_result['success']:
         return {
-            "success": False,
-            "message": f"Could not load config: {config_result['message']}",
-            "report": "",
+            'success': False,
+            'message': f"Could not load config: {config_result['message']}",
+            'report': ''
         }
 
-    config = config_result["config"]
+    config = config_result['config']
 
     # Get settings from config
-    project_root = Path(config.get("project", {}).get("root", ".")).resolve()
-    output_dir = Path(config.get("output", {}).get("base_dir", "docs/mirror"))
+    project_root = Path(config.get('project', {}).get('root', '.')).resolve()
+    output_dir = Path(config.get('output', {}).get('base_dir', 'docs/mirror'))
 
     # Read manifest
     manifest_result = read_manifest(manifest_path)
 
-    if not manifest_result["success"]:
-        return {"success": False, "message": manifest_result["message"], "report": ""}
+    if not manifest_result['success']:
+        return {
+            'success': False,
+            'message': manifest_result['message'],
+            'report': ''
+        }
 
-    documents = manifest_result["documents"]
+    documents = manifest_result['documents']
 
     # Build report
     report = []
@@ -261,13 +279,14 @@ def run_check_mode(manifest_path=None, config_path=None):
     report.append(f"Total files in manifest: {len(documents)}")
     report.append(f"Source files exist:      {exists_count}")
     report.append(f"Source files missing:    {missing_count}")
-    report.append("\nNo files were written (dry-run mode)")
+    report.append(f"\nNo files were written (dry-run mode)")
     report.append("=" * 70)
 
     report_text = "\n".join(report)
 
     return {
-        "success": True,
-        "message": f"Check complete: {exists_count} files ready, {missing_count} missing",
-        "report": report_text,
+        'success': True,
+        'message': f'Check complete: {exists_count} files ready, {missing_count} missing',
+        'report': report_text
     }
+```

@@ -1,0 +1,85 @@
+# pyproject.toml
+
+**Path:** pyproject.toml
+**Syntax:** toml
+**Generated:** 2026-03-26 19:01:15
+
+```toml
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "doc-gen"
+version = "0.1.0"
+description = "Filesystem-driven documentation generator that creates syntax-highlighted markdown from project source code"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+
+authors = [
+    { name = "Carolyn Boyle", email = "carolyn@whycantyoujust.tech" }
+]
+
+keywords = [
+    "documentation",
+    "markdown",
+    "code",
+    "generator",
+    "cli",
+    "filesystem"
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Documentation",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=23.0",
+]
+
+[project.scripts]
+# Primary entry point - interactive menu
+doc-gen = "doc_gen.ui.menu:main"
+
+# CLI entry point - command-line interface
+doc-gen-cli = "doc_gen.ui.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/carolynboyle/doc-gen"
+Repository = "https://github.com/carolynboyle/doc-gen"
+Issues = "https://github.com/carolynboyle/doc-gen/issues"
+Documentation = "https://github.com/carolynboyle/doc-gen/tree/main/docs"
+
+[tool.setuptools]
+packages = [
+    "doc_gen",
+    "doc_gen.core",
+    "doc_gen.ui",
+    "doc_gen.utils",
+    "doc_gen.plugins",
+    "doc_gen.data"
+]
+include-package-data = true
+
+[tool.setuptools.package-data]
+# Include template and data files
+"doc_gen.data" = ["*.yml", "*.yaml", "*.template"]
+"*" = ["*.template"]
+
+```
